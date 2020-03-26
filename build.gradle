@@ -1,0 +1,171 @@
+import groovyx.gpars.GParsPool
+
+import net.masterthought.cucumber.Configuration
+import net.masterthought.cucumber.ReportBuilder
+
+buildscript {
+    repositories {
+        mavenCentral()
+    }
+    dependencies {
+        classpath "org.codehaus.gpars:gpars:1.2.1"
+        classpath "net.masterthought:cucumber-reporting:3.5.1"
+    }
+}
+
+plugins {
+    id 'org.springframework.boot' version '2.2.5.RELEASE'
+    id 'io.spring.dependency-management' version '1.0.9.RELEASE'
+    id 'java'
+}
+
+group = 'com.example'
+version = '0.0.1-SNAPSHOT'
+sourceCompatibility = '1.8'
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    // Dependencies added by "https://start.spring.io/"
+    implementation 'org.springframework.boot:spring-boot-starter-web'
+    testImplementation('org.springframework.boot:spring-boot-starter-test')
+
+    // Cucumber related dependencies
+    compile 'io.cucumber:cucumber-core:5.5.0'
+    compile 'io.cucumber:cucumber-java:5.5.0'
+    compile 'io.cucumber:cucumber-spring:5.5.0'
+    compile 'io.cucumber:cucumber-junit:5.5.0'
+    compile 'io.cucumber:cucumber-junit-platform-engine:5.5.0'
+    compile 'io.cucumber:cucumber-testng:5.5.0'
+}
+
+task testJUnit4(type: Test) {
+    include '**/CucumberRunnerJunit4.**'
+
+    doLast {
+        generateReport("build/reports/JUnit4")
+    }
+}
+
+task testJUnit4_parallel(type: Test) {
+    include '**/CucumberRunnerJunit4Parallel.**'
+    maxParallelForks = 8
+
+    doLast {
+        generateReport("build/reports/JUnit4_parallel")
+    }
+}
+
+task testJUnit5(type: Test) {
+    useJUnitPlatform()
+    include '**/CucumberRunnerJunit5.**'
+
+    systemProperties = [
+            "cucumber.plugin": "json:build/reports/JUnit5/json/testJUnit5.json, timeline:build/reports/JUnit5/timeline/"
+    ]
+
+    doLast {
+        generateReport("build/reports/JUnit5")
+    }
+}
+
+task testJUnit5_parallel(type: Test) {
+    useJUnitPlatform()
+    include '**/CucumberRunnerJunit5.**'
+
+    systemProperties = [
+            "cucumber.plugin"                                     : "json:build/reports/JUnit5_parallel/json/testJUnit5_parallel.json, timeline:build/reports/JUnit5_parallel/timeline/",
+            "cucumber.execution.parallel.enabled"                 : true,
+            "cucumber.execution.parallel.config.strategy"         : "fixed",
+            "cucumber.execution.parallel.config.fixed.parallelism": 8
+    ]
+
+    doLast {
+        generateReport("build/reports/JUnit5_parallel")
+    }
+}
+
+task testTestNG(type: Test) {
+    useTestNG()
+    scanForTestClasses = false
+    include '**/CucumberRunnerTestNG.**'
+
+    doLast {
+        generateReport("build/reports/TestNG")
+    }
+}
+
+task testTestNG_parallel(type: Test) {
+    useTestNG() {
+        options {
+            parallel = 'test'
+            threadCount = 8
+        }
+    }
+    testLogging.showStandardStreams = true
+    scanForTestClasses = false
+    include '**/CucumberRunnerTestNGParallel.**'
+
+    doLast {
+        generateReport("build/reports/TestNG")
+    }
+}
+
+task testCucumberCLI {
+    dependsOn(assemble, testClasses)
+    doLast {
+        def arglist = [
+                "-p", "json:build/reports/CucumberCLI/json/testCucumberCLI.json",
+                "--glue", "com.example.cucumber.gradle.parallel.demo",
+                "${project.projectDir}/src/test/resources/"
+        ]
+        javaexec {
+            main = "io.cucumber.core.cli.Main"
+            classpath = sourceSets.test.runtimeClasspath
+            args = arglist
+        }
+        generateReport("build/reports/CucumberCLI")
+    }
+}
+
+task testCucumberCLI_parallel {
+    dependsOn(assemble, testClasses)
+    doLast {
+        def features = fileTree(dir: "${project.projectDir}/src/test/resources/").include('**/*.feature')
+        GParsPool.withPool(8) {
+            features.eachParallel { File file ->
+                def arglist = [
+                        "-p", "json:build/reports/CucumberCLI_parallel/json/${file.name}.json",
+                        "--glue", "com.example.cucumber.gradle.parallel.demo",
+                        "${file.canonicalPath}"
+                ]
+                javaexec {
+                    main = "io.cucumber.core.cli.Main"
+                    classpath = sourceSets.test.runtimeClasspath
+                    args = arglist
+                }
+            }
+        }
+
+        generateReport("build/reports/CucumberCLI_parallel")
+    }
+}
+
+def generateReport(String pathToJsonFiles) {
+    def jsonReports = fileTree(dir: "${pathToJsonFiles}/json").include '**/*.json'.toString()
+    File reportOutputDirectory = new File("${pathToJsonFiles}/report")
+
+    List<String> jsonReportFiles = new ArrayList<String>()
+    jsonReports.each { File file ->
+        jsonReportFiles.add("${pathToJsonFiles}/json/${file.name}".toString())
+    }
+
+    Configuration configuration = new Configuration(reportOutputDirectory, "cucumber-report")
+    configuration.setParallelTesting(true)
+    configuration.setRunWithJenkins(false)
+
+    ReportBuilder reportBuilder = new ReportBuilder(jsonReportFiles, configuration)
+    reportBuilder.generateReports()
+}
