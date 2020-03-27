@@ -1,15 +1,12 @@
 import groovyx.gpars.GParsPool
 
-import net.masterthought.cucumber.Configuration
-import net.masterthought.cucumber.ReportBuilder
-
 buildscript {
     repositories {
         mavenCentral()
     }
     dependencies {
         classpath "org.codehaus.gpars:gpars:1.2.1"
-        classpath "net.masterthought:cucumber-reporting:3.5.1"
+        classpath "net.masterthought:cucumber-reporting:5.1.1"
     }
 }
 
@@ -19,9 +16,7 @@ plugins {
     id 'java'
 }
 
-group = 'com.example'
-version = '0.0.1-SNAPSHOT'
-sourceCompatibility = '1.8'
+apply plugin: "application"
 
 repositories {
     mavenCentral()
@@ -29,28 +24,33 @@ repositories {
 
 dependencies {
     // Dependencies added by "https://start.spring.io/"
-    implementation 'org.springframework.boot:spring-boot-starter-web'
-    testImplementation('org.springframework.boot:spring-boot-starter-test')
+    implementation "org.springframework.boot:spring-boot-starter-web"
+    testImplementation("org.springframework.boot:spring-boot-starter-test")
 
     // Cucumber related dependencies
-    compile 'io.cucumber:cucumber-core:5.5.0'
-    compile 'io.cucumber:cucumber-java:5.5.0'
-    compile 'io.cucumber:cucumber-spring:5.5.0'
-    compile 'io.cucumber:cucumber-junit:5.5.0'
-    compile 'io.cucumber:cucumber-junit-platform-engine:5.5.0'
-    compile 'io.cucumber:cucumber-testng:5.5.0'
+    compile "io.cucumber:cucumber-core:${cucumberVersion}"
+    compile "io.cucumber:cucumber-java:${cucumberVersion}"
+    compile "io.cucumber:cucumber-spring:${cucumberVersion}"
+    compile "io.cucumber:cucumber-junit:${cucumberVersion}"
+    compile "io.cucumber:cucumber-junit-platform-engine:${cucumberVersion}"
+    compile "io.cucumber:cucumber-testng:${cucumberVersion}"
+}
+
+distributions {
+    main {
+        baseName = "parallel-demo"
+    }
 }
 
 task testJUnit4(type: Test) {
-    include '**/CucumberRunnerJunit4.**'
+    include "**/CucumberRunnerJunit4.**"
 
     doLast {
         generateReport("build/reports/JUnit4")
     }
 }
-
 task testJUnit4_parallel(type: Test) {
-    include '**/CucumberRunnerJunit4Parallel.**'
+    include "**/CucumberRunnerJunit4Parallel.**"
     maxParallelForks = 8
 
     doLast {
@@ -58,22 +58,21 @@ task testJUnit4_parallel(type: Test) {
     }
 }
 
-task testJUnit5(type: Test) {
-    useJUnitPlatform()
-    include '**/CucumberRunnerJunit5.**'
-
-    systemProperties = [
-            "cucumber.plugin": "json:build/reports/JUnit5/json/testJUnit5.json, timeline:build/reports/JUnit5/timeline/"
-    ]
-
-    doLast {
-        generateReport("build/reports/JUnit5")
-    }
-}
-
+//task testJUnit5(type: Test) {
+//    useJUnitPlatform()
+//    include '**/CucumberRunnerJunit5.**'
+//
+//    systemProperties = [
+//            "cucumber.plugin": "json:build/reports/JUnit5/json/testJUnit5.json, timeline:build/reports/JUnit5/timeline/"
+//    ]
+//
+//    doLast {
+//        generateReport("build/reports/JUnit5")
+//    }
+//}
 task testJUnit5_parallel(type: Test) {
     useJUnitPlatform()
-    include '**/CucumberRunnerJunit5.**'
+    include "**/CucumberRunnerJunit5.**"
 
     systemProperties = [
             "cucumber.plugin"                                     : "json:build/reports/JUnit5_parallel/json/testJUnit5_parallel.json, timeline:build/reports/JUnit5_parallel/timeline/",
@@ -90,7 +89,7 @@ task testJUnit5_parallel(type: Test) {
 task testTestNG(type: Test) {
     useTestNG()
     scanForTestClasses = false
-    include '**/CucumberRunnerTestNG.**'
+    include "**/CucumberRunnerTestNG.**"
 
     doLast {
         generateReport("build/reports/TestNG")
@@ -100,13 +99,13 @@ task testTestNG(type: Test) {
 task testTestNG_parallel(type: Test) {
     useTestNG() {
         options {
-            parallel = 'test'
+            parallel = "test"
             threadCount = 8
         }
     }
     testLogging.showStandardStreams = true
     scanForTestClasses = false
-    include '**/CucumberRunnerTestNGParallel.**'
+    include "**/CucumberRunnerTestNGParallel.**"
 
     doLast {
         generateReport("build/reports/TestNG")
@@ -133,7 +132,7 @@ task testCucumberCLI {
 task testCucumberCLI_parallel {
     dependsOn(assemble, testClasses)
     doLast {
-        def features = fileTree(dir: "${project.projectDir}/src/test/resources/").include('**/*.feature')
+        def features = fileTree(dir: "${project.projectDir}/src/test/resources/").include("**/*.feature")
         GParsPool.withPool(8) {
             features.eachParallel { File file ->
                 def arglist = [
@@ -153,19 +152,84 @@ task testCucumberCLI_parallel {
     }
 }
 
-def generateReport(String pathToJsonFiles) {
-    def jsonReports = fileTree(dir: "${pathToJsonFiles}/json").include '**/*.json'.toString()
-    File reportOutputDirectory = new File("${pathToJsonFiles}/report")
+task testJUnit5(type: Test) {
+    useJUnitPlatform()
+    include '**/CucumberRunnerJunit5.**'
 
-    List<String> jsonReportFiles = new ArrayList<String>()
-    jsonReports.each { File file ->
-        jsonReportFiles.add("${pathToJsonFiles}/json/${file.name}".toString())
+    systemProperties = [
+            "server.port.forTest": mySqlAppPort,
+            "cucumber.plugin": "json:build/reports/JUnit5/json/testJUnit5.json, timeline:build/reports/JUnit5/timeline/"
+    ]
+
+    doLast {
+        generateReport("build/reports/JUnit5")
     }
+}
+task testMySql(){
+    dependsOn("docker:executeAgainstMySqlComposeUp")
+    dependsOn("testJUnit5")
+    testJUnit5.mustRunAfter(tasks.findByPath('docker:executeAgainstMySqlComposeUp'))
+    finalizedBy('docker:executeAgainstMySqlComposeDownForced')
+}
+tasks.findByPath("docker:unzipAppDistribution").dependsOn(bootDistZip)
 
+// THis dependency is executed in parallel because we have the property org.gradle.parallel=true
+task testDBInParallel(){
+    dependsOn("testJUnit5") // This can be other DB task test
+    dependsOn("testMySql")
+}
+
+
+// Sample of dynamic creation
+void createTask(String databaseType) {
+    String taskName = "executeTestAgainst" + databaseType;
+    task (taskName) {
+        useJUnitPlatform()
+        include '**/CucumberRunnerJunit5.**'
+
+        systemProperties = [
+                "server.port.forTest": databaseType,
+                "cucumber.plugin": "json:build/reports/JUnit5/json/testJUnit5.json, timeline:build/reports/JUnit5/timeline/"
+        ]
+
+        doLast {
+            generateReport("build/reports/JUnit5")
+        }
+    }
+}
+
+import net.masterthought.cucumber.ReportBuilder
+import net.masterthought.cucumber.Configuration
+import net.masterthought.cucumber.presentation.PresentationMode;
+import net.masterthought.cucumber.sorting.SortingMethod;
+
+task report(){
+    doLast {
+        generateReport("build/reports/JUnit5")
+    }
+}
+def generateReport(String pathToJsonFiles) {
+    File reportOutputDirectory = createBaseReportFolder(pathToJsonFiles)
     Configuration configuration = new Configuration(reportOutputDirectory, "cucumber-report")
-    configuration.setParallelTesting(true)
-    configuration.setRunWithJenkins(false)
+    configuration.setSortingMethod(SortingMethod.NATURAL);
+    configuration.addPresentationModes(PresentationMode.EXPAND_ALL_STEPS);
+    configuration.addPresentationModes(PresentationMode.PARALLEL_TESTING);
 
-    ReportBuilder reportBuilder = new ReportBuilder(jsonReportFiles, configuration)
+    ReportBuilder reportBuilder = new ReportBuilder(getReportFiles(pathToJsonFiles), configuration)
     reportBuilder.generateReports()
+}
+
+def getReportFiles(pathToJsonFiles){
+    def dir = new File("${pathToJsonFiles}/json")
+    def jsonReportFiles = []
+    dir.eachFileRecurse (groovy.io.FileType.FILES) { file ->
+        jsonReportFiles << file.toString()
+    }
+    jsonReportFiles
+}
+
+def createBaseReportFolder(pathToJsonFiles) {
+    new File("${pathToJsonFiles}/report").mkdir()
+    new File("${pathToJsonFiles}/report/cucumber-html-reports").mkdir()
+    new File("${pathToJsonFiles}/report")
 }

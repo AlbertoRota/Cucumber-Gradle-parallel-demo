@@ -1,1 +1,2 @@
 rootProject.name = 'cucumber-gradle-parallel-demo'
+include 'docker'
