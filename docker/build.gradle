@@ -1,0 +1,54 @@
+buildscript {
+    repositories {
+        jcenter()
+        mavenCentral()
+    }
+
+    dependencies {
+        classpath "com.avast.gradle:gradle-docker-compose-plugin:0.10.7"
+    }
+}
+repositories {
+    mavenLocal()
+    jcenter()
+}
+
+apply plugin: 'docker-compose'
+
+task unzipAppDistribution(type: Copy) {
+    def zipFile = file("../build/distributions/cucumber-gradle-parallel-demo-boot-${version}.zip")
+    def outputDir = file("${buildDir}/unpacked/dist")
+
+    from zipTree(zipFile)
+    into outputDir
+}
+
+// docker-compose -f docker/docker-compose-e2e.yml up -e PLAY_APP_PORT=5555 TAG=5555
+dockerCompose {
+    executeAgainstMySql {
+        useComposeFiles = ['docker-compose-mysql.yml']
+        tcpPortsToIgnoreWhenWaiting = [mySqlAppPort]
+        buildAdditionalArgs = ['--force-rm']
+        environment.put 'APP_PORT', mySqlAppPort
+        environment.put 'DB_PORT', mySqlPort
+        environment.put 'REVISION', version
+
+        // Use in case you want to see the dockers logs
+        captureContainersOutput = true
+        // captureContainersOutputToFiles = 'logs'
+    }
+    executeAgainstOracle {
+        useComposeFiles = ['docker-compose-oracle.yml']
+        tcpPortsToIgnoreWhenWaiting = [oracleAppPort]
+        buildAdditionalArgs = ['--force-rm']
+        environment.put 'APP_PORT', oracleAppPort
+        environment.put 'DB_PORT', oraclePort
+        environment.put 'REVISION', version
+
+        // Use in case you want to see the dockers logs
+        captureContainersOutput = false
+        // captureContainersOutputToFiles = 'logs'
+    }
+}
+
+executeAgainstMySqlComposeUp.dependsOn(unzipAppDistribution)

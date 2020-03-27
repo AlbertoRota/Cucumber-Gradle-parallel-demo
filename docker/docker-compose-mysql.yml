@@ -1,0 +1,38 @@
+version: "3.3"
+services:
+  mysql:
+    image: mysql:5.6.44
+    environment:
+      - MYSQL_ROOT_PASSWORD=hola
+      - MYSQL_USER=hola
+      - MYSQL_PASSWORD=hola
+      - MYSQL_DATABASE=hola
+    ports:
+      - "${DB_PORT}:3306"
+    networks:
+      - e2e-network
+  flyway:
+    image: flyway/flyway
+    command: -pro -url=jdbc:mysql://mysql/hola -schemas=hola -user=hola -password=hola -connectRetries=120 migrate
+    volumes:
+      - ../sql:/flyway/sql
+    networks:
+      - e2e-network
+    depends_on:
+      - mysql
+    env_file:
+      - .env_flyway
+  backend:
+    image: openjdk:11-jdk-slim
+    depends_on:
+      - "mysql"
+    ports:
+      - "${APP_PORT}:8090"
+    volumes:
+      - ./build/unpacked/dist/cucumber-gradle-parallel-demo-boot-${REVISION}:/app
+    command: ["sh", "-c", "exec /app/bin/cucumber-gradle-parallel-demo"]
+    networks:
+      - e2e-network
+networks:
+  e2e-network:
+    driver: "bridge"
